@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # @PluginName: Secure Shell
-# @Version: 2.0.0
+# @Version: 2.0.1
 # @Author: ZhangZuoqian
 # @Description: 跨平台(Linux/macOS/Windows) Shell 执行器，带安全白名单与日志审计
 #
@@ -12,6 +12,14 @@
 #   5. 流式输出（长命令不再阻塞到结束），带超时终止
 #   6. 权限可配置、超时可配置、白名单可在配置文件里调整
 #
+# 相较 v2.0.0 的改进（安全修复：根除 shell 命令注入）：
+#   1. 删除 /bin/sh -c / cmd /c 包装层，用户输入不再交给任何 shell 解释器
+#   2. shlex.split() 拆分为参数列表 cmd_list，引号未闭合等格式错误直接终止不执行
+#   3. 拆分结果为空列表时直接拦截，拒绝执行空命令
+#   4. 黑白名单只用拆分后索引0的真实程序名判断，不校验原始输入字符串
+#   5. Popen(cmd_list, shell=False) 执行，流式读取、超时自动杀死子进程的逻辑原样保留
+#   6. 消息状态标记统一为 [INFO]/[OK]/[FAIL] 纯 ASCII 符号
+#
 # 依赖：MCDReforged >= 2.0.0
 
 from __future__ import annotations
@@ -20,16 +28,17 @@ import os
 import time
 import platform
 import threading
+import shlex
 import subprocess
 import datetime
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, Tuple
 
 from mcdreforged.api.all import *
 
 PLUGIN_METADATA = {
     'id': 'secure_shell',
-    'version': '2.0.0',
+    'version': '2.0.1',
     'name': 'Secure Shell',
     'description': {
         'zh_cn': '跨平台Shell执行器，带安全白名单与日志审计',
@@ -92,15 +101,6 @@ def is_macos() -> bool:
     return platform.system().lower() == 'darwin'
 
 
-def shell_command_wrapper(command: str) -> List[str]:
-    """根据平台返回可用的 shell 包装。返回 [shell, '-c', command] 形式参数列表。"""
-    if is_windows():
-        # Windows：cmd.exe
-        return ["cmd.exe", "/c", command]
-    # Linux / macOS / 其他 Unix：sh -c（POSIX 兼容）
-    return ["/bin/sh", "-c", command]
-
-
 # ---------------------------------------------------------------------------
 # 配置加载
 # ---------------------------------------------------------------------------
@@ -144,22 +144,16 @@ def _audit(action: str, player: str = None, command: str = None, result: str = N
 # ---------------------------------------------------------------------------
 # 安全校验
 # ---------------------------------------------------------------------------
-def _matches_prefix(cmd: str, prefix: str) -> bool:
-    """命令是否以某前缀开头（忽略首尾空白、区分大小写忽略大小写）。"""
-    cmd = cmd.strip()
-    prefix = prefix.strip()
-    if not prefix:
-        return False
-    return cmd.lower().startswith(prefix.lower())
+def check_allowed(program: str) -> Tuple[bool, str]:
+    """对拆分后的真实程序名（索引0）做黑白名单判断，返回 (是否放行, 拒绝原因)。
+    名单条目按首个词与程序名全等匹配（"rm -rf /" 命中 rm，"git status" 放行 git）。
+    """
+    program = program.strip().lower()
 
-
-def check_allowed(cmd: str) -> Tuple[bool, str]:
-    """返回 (是否放行, 拒绝原因)。"""
-    stripped = cmd.strip()
-
-    # 1. 黑名单优先：任何命中即拒绝
+    # 1. 黑名单优先：程序名命中任一条目即拒绝
     for bad in _config.get("blacklist", []):
-        if _matches_prefix(stripped, bad):
+        bad_head = bad.strip().split()[0].lower() if bad.strip() else ""
+        if bad_head and program == bad_head:
             return False, f"命中黑名单命令: {bad}"
 
     # 2. 白名单
@@ -171,9 +165,10 @@ def check_allowed(cmd: str) -> Tuple[bool, str]:
         if not allowlist:
             return False, "白名单为空且强制开启，所有命令被拒绝"
         for good in allowlist:
-            if _matches_prefix(stripped, good):
+            good_head = good.strip().split()[0].lower() if good.strip() else ""
+            if good_head and program == good_head:
                 return True, ""
-        return False, f"命令不在白名单内(前缀): {stripped.split()[0] if stripped.split() else ''}"
+        return False, f"命令不在白名单内: {program}"
     else:
         return True, ""  # 非强制模式：放行，但会记录
 
@@ -185,19 +180,31 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
     """执行命令，返回 (returncode, output)。流式读取，超时终止。"""
     global _cwd
 
-    # 安全校验
-    allowed, reason = check_allowed(command)
+    # shlex.split：拆分命令字符串得到参数列表，杜绝 shell 元字符被解释
+    try:
+        cmd_list = shlex.split(command)
+    except ValueError:
+        _audit("拒绝执行", player=player, command=command, result="命令格式错误，引号未正确闭合")
+        return -1, "[FAIL] 命令格式错误，引号未正确闭合"
+
+    # 空列表拦截：拒绝执行空命令
+    if not cmd_list:
+        _audit("拒绝执行", player=player, command=command, result="空命令")
+        return -1, "[FAIL] 空命令，拒绝执行"
+
+    # 安全校验：只拿索引0的真实程序名做黑白名单判断，不校验原始输入字符串
+    program = cmd_list[0]
+    allowed, reason = check_allowed(program)
     if not allowed:
         _audit("拒绝执行", player=player, command=command, result=f"被拦截: {reason}")
-        return -1, f"[安全拦截] {reason}"
+        return -1, f"[FAIL] 安全拦截: {reason}"
 
     _audit("执行", player=player, command=command, extra=f"cwd={_cwd}")
 
-    wrapper = shell_command_wrapper(command)
-
     try:
         proc = subprocess.Popen(
-            wrapper,
+            cmd_list,
+            shell=False,
             cwd=str(_cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -207,7 +214,7 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
         )
     except Exception as e:
         _audit("执行失败", player=player, command=command, result=f"启动异常: {e}")
-        return -1, f"[执行异常] {e}"
+        return -1, f"[FAIL] 执行异常: {e}"
 
     # 流式读取
     output_chunks = []
@@ -230,13 +237,16 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
     except Exception:
         pass
 
-    code = proc.poll()
-    if code is None:
-        code = -1
+    try:
+        code = proc.wait(timeout=2)
+    except Exception:
+        code = proc.poll()
+        if code is None:
+            code = -1
 
     output = "".join(output_chunks)
     if timed_out:
-        output += f"\n[命令超时(>{timeout}s)，已强制终止]"
+        output += f"\n[FAIL] 命令超时(>{timeout}s)，已强制终止"
 
     return code, output
 
@@ -264,7 +274,7 @@ def shell_cmd(source: CommandSource, command: str):
 
     req_perm = _config.get("required_permission", 4)
     if not source.has_permission(req_perm):
-        source.reply(RText(f"§c权限不足！需要MCDR权限等级 {req_perm}§r"))
+        source.reply(RText(f"§c[FAIL] 权限不足，需要MCDR权限等级 {req_perm}§r"))
         _audit("权限不足", player=source.player if source.is_player else "控制台",
                command=command, result=f"需要权限{req_perm}")
         return
@@ -287,14 +297,14 @@ def shell_cmd(source: CommandSource, command: str):
         if p.is_dir():
             _cwd = p
             _audit("切换目录", player=player, result=str(_cwd))
-            source.reply(f"§a工作目录已切换到: {_cwd}§r")
+            source.reply(f"§a[OK] 工作目录已切换到: {_cwd}§r")
         else:
-            source.reply(f"§c目录不存在: {p}§r")
+            source.reply(f"§c[FAIL] 目录不存在: {p}§r")
         return
 
     # pwd 命令
     if stripped == 'pwd':
-        source.reply(f"§e当前工作目录: {_cwd}§r")
+        source.reply(f"§e[INFO] 当前工作目录: {_cwd}§r")
         return
 
     timeout = _config.get("default_timeout", 60)
@@ -310,11 +320,14 @@ def shell_cmd(source: CommandSource, command: str):
     if len(command_clean) >= 2 and command_clean[0] == command_clean[-1] and command_clean[0] in ('"', "'"):
         command_clean = command_clean[1:-1]
 
-    source.reply(f"§7[执行] §f{command_clean}§7  (cwd={_cwd}, timeout={timeout}s)§r")
+    source.reply(f"§7[INFO] 执行 §f{command_clean}§7  (cwd={_cwd}, timeout={timeout}s)§r")
     code, output = execute_shell(command_clean, timeout, player)
     if output.strip():
         source.reply(format_output(output))
-    source.reply(f"§7[退出码] §f{code}§r")
+    if code == 0:
+        source.reply(f"§a[OK] 退出码 {code}§r")
+    else:
+        source.reply(f"§c[FAIL] 退出码 {code}§r")
     _audit("完成", player=player, command=command_clean, result=f"exit={code}")
 
 
@@ -324,11 +337,11 @@ def shell_cmd(source: CommandSource, command: str):
 def _shell_status(source: CommandSource):
     """查看白名单开关状态（管理员可查看）。"""
     if not source.has_permission(_config.get("required_permission", 4)):
-        source.reply(RText("§c权限不足§r"))
+        source.reply(RText("§c[FAIL] 权限不足§r"))
         return
     en = _config.get("enforce_allowlist", False)
     mode = "§a开启§r（只允许白名单命令）" if en else "§e关闭§r（放行任意命令，危险命令黑名单仍兜底）"
-    source.reply(f"§7[ShellExecutor] 白名单强制: {mode}")
+    source.reply(f"§7[INFO] 白名单强制: {mode}")
     if not en:
         source.reply(f"§7  黑名单拦截仍在生效，危险命令如 rm -rf /、shutdown 等会被拒绝")
     else:
@@ -350,8 +363,8 @@ def on_load(server: PluginServerInterface, prev_module):
     server.register_command(
         Literal('!!shellstatus').runs(lambda src: _shell_status(src))
     )
-    server.logger.info("ShellExecutor 已加载")
-    server.logger.info(f"平台: {platform.system()} | 强制白名单: {_config.get('enforce_allowlist')} | 审计日志: logs/secure_shell.log")
+    server.logger.info("[INFO] ShellExecutor 已加载")
+    server.logger.info(f"[INFO] 平台: {platform.system()} | 强制白名单: {_config.get('enforce_allowlist')} | 审计日志: logs/secure_shell.log")
 
 
 def on_unload(server):
