@@ -1,0 +1,14 @@
+{
+  "id": "secure_shell",
+  "version": "2.0.0",
+  "name": "Secure Shell",
+  "description": {
+    "zh_cn": "跨平台 Shell 执行器，带安全白名单与日志审计",
+    "en_us": "Cross-platform shell executor with allowlist and audit log"
+  },
+  "author": "ZhangZuoqian",
+  "link": "https://github.com/ZhangZuoqian/secure_shell",
+  "dependencies": {
+    "mcdreforged": ">=2.0.0"
+  }
+}
