@@ -140,6 +140,12 @@ def load_config(server: PluginServerInterface):
     except OSError:
         pass
     _audit_log = logs_dir / 'secure_shell.log'
+    # 配置热重载后，把新配置重新注入已加载的扩展引擎（旧 dict 引用会失效）
+    if _ext_module is not None:
+        try:
+            _ext_module.init(_config, _audit)
+        except Exception as e:
+            server.logger.error(f"[ERROR] 扩展引擎配置重注入失败 (engine re-init failed): {e}")
     _audit("ShellExecutor 初始化", extra=f"平台={platform.system()} 白名单强制={_config['enforce_allowlist']} 扩展已启用={_ext_module is not None}")
 
 
@@ -362,7 +368,7 @@ def ext_cmd_install(source, password: str = ""):
         except urllib.error.URLError as e:
             _audit("扩展安装失败", result=f"网络错误 (network): {e}")
             source.reply(RText(f"§c[FAIL] 下载失败 (download failed): {e}§r"))
-        except (ValueError, zipfile.BadZipFile, OSError) as e:
+        except (ValueError, KeyError, zipfile.BadZipFile, OSError) as e:
             _audit("扩展安装失败", result=f"{e}")
             source.reply(RText(f"§c[FAIL] 安装失败 (install failed): {e}§r"))
 
