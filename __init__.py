@@ -38,7 +38,7 @@ from mcdreforged.api.all import *
 
 PLUGIN_METADATA = {
     'id': 'secure_shell',
-    'version': '2.0.1',
+    'version': '2.0.2',
     'name': 'Secure Shell',
     'description': {
         'zh_cn': '跨平台Shell执行器，带安全白名单与日志审计',
@@ -57,6 +57,8 @@ PLUGIN_METADATA = {
 DEFAULT_CONFIG = {
     # 所需 MCDR 权限等级（4 = 管理员，2 = 一般OP）
     "required_permission": 4,
+    # 是否允许游戏内玩家执行（默认 False：仅 MCDR 控制台可执行；True 时玩家还需满足 required_permission）
+    "allow_player_execution": False,
     # 单条命令默认超时（秒）
     "default_timeout": 60,
     # 是否强制白名单（True：只允许白名单命令；False：关闭白名单限制，放行任意命令但记录+黑名单仍兜底）
@@ -273,6 +275,14 @@ def shell_cmd(source: CommandSource, command: str):
     global _cwd
 
     req_perm = _config.get("required_permission", 4)
+
+    # 游戏内执行默认禁用（v2.0.2）：仅 MCDR 控制台可用，需显式开启且玩家满足权限等级
+    if source.is_player and not _config.get("allow_player_execution", False):
+        source.reply(RText(f"§c[FAIL] 游戏内执行默认禁用（仅限控制台）。如确需开启，请在 config 中设置 allow_player_execution=true，且玩家权限等级需 ≥ {req_perm}§r"))
+        _audit("玩家执行禁用", player=source.player, command=command,
+               result="allow_player_execution=False")
+        return
+
     if not source.has_permission(req_perm):
         source.reply(RText(f"§c[FAIL] 权限不足，需要MCDR权限等级 {req_perm}§r"))
         _audit("权限不足", player=source.player if source.is_player else "控制台",
@@ -346,6 +356,9 @@ def _shell_status(source: CommandSource):
         source.reply(f"§7  黑名单拦截仍在生效，危险命令如 rm -rf /、shutdown 等会被拒绝")
     else:
         source.reply(f"§7  当前白名单 {len(_config.get('allowlist', []))} 条，可用 !!shellstatus 查看")
+    pe = _config.get("allow_player_execution", False)
+    pe_mode = "§e开启§r（游戏内需权限等级 ≥ %d）" % _config.get("required_permission", 4) if pe else "§c关闭§r（仅控制台可执行）"
+    source.reply(f"§7[INFO] 游戏内玩家执行: {pe_mode}")
 
 
 def on_load(server: PluginServerInterface, prev_module):

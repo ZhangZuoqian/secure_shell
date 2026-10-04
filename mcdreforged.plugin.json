@@ -1,6 +1,6 @@
 {
   "id": "secure_shell",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "name": "Secure Shell",
   "description": {
     "zh_cn": "跨平台 Shell 执行器，带安全白名单与日志审计",
