@@ -22,6 +22,7 @@ mcdreforged>=2.0.0
 - 危险命令黑名单常开，另有可选的白名单-only 模式
 - 每次执行和拒绝都写进 `logs/secure_shell.log`
 - 跨平台（Linux / macOS / Windows），单条命令超时强杀
+- 引擎可插拔：shell 执行引擎本身做成签名的扩展包——默认不存在，装不装全凭管理员一句话
 
 ## 用法
 
@@ -84,6 +85,21 @@ mcdreforged>=2.0.0
 
 匹配对象是拆分后的真实程序名（首词全等）：白名单里的 `git status` 放行的是 `git`，黑名单里的 `rm -rf /` 拦的是 `rm`。黑名单永远兜底，白名单只在 `enforce_allowlist` 为 `true` 时生效。自带的 `allowlist` 是按 Linux 写的——Windows 和 macOS 用户请按自己的系统改（比如 Windows 下的 `tasklist`、`ipconfig`）。
 
+## 扩展包
+
+v2.1.0 起，真正的 shell 引擎是独立的可选包。主插件不自带、不下载、不加载——必须由控制台管理员主动安装。所有 `!!secure_shell` 管理命令**仅限控制台**，游戏内玩家无论什么权限一律拒绝。
+
+```
+!!secure_shell install_ext [密码]     下载、校验（SHA256+RSA 签名）并安装扩展包
+!!secure_shell check_ext              查看引擎是否已安装/已启用及版本
+!!secure_shell enable_ext             启用已安装的引擎（故意设计成第二步）
+!!secure_shell disable_ext            停用引擎但保留文件
+!!secure_shell uninstall_ext [密码]   删除引擎文件
+!!secure_shell hash_password <密码>   生成 PBKDF2 哈希，贴进配置用（想要二次密码时）
+```
+
+完整性校验是强制的：下载的包必须命中插件内置（或你在 `ext_expected_sha256` 里设置的）SHA-256，还必须带上与插件源码内置公钥配对的 RSA-2048 签名，两道校验任一不过就不落盘。配置里设置了密码（PBKDF2 哈希，不是明文，更不在源码里）之后，`install_ext` 和 `uninstall_ext` 都要附加密码参数。
+
 ## 安全说明
 
 从 v2.0.1 起，命令不再经过 shell。输入先拆成程序名和参数（`shlex.split`），然后直接启动程序——管道 `|`、重定向 `>`、通配符 `*`、`;`、`&&`、`$()`、反引号都不再生效。普通命令加普通参数不受影响。真需要管道、重定向，就写个脚本放到服务器上，把脚本加进白名单。
@@ -93,6 +109,8 @@ mcdreforged>=2.0.0
 bash、sh、zsh、python、perl、powershell 这类解释器别放进白名单。解释器自己就能跑任意命令，放一个进去等于白名单作废。插件不会拦你——配置是你的事。白名单老老实实放 ping、df、free、uptime、systemctl 这类单纯工具。
 
 每次执行都会记录到 `logs/secure_shell.log`，含时间、玩家、命令和结果——拒绝记录也在内。
+
+扩展包有两点要想明白：MCDR 控制台的权限等于主机本身，能碰控制台的人就能装引擎——这才是真正的信任边界，二次密码防的是手滑不是内鬼。签发扩展包的私钥只在打包者机器上，不进仓库也不进插件；自己打包的话，把你的哈希填到 `ext_expected_sha256` 就行。
 
 ## 安装
 
