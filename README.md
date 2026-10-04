@@ -90,7 +90,7 @@ Matching works on the actual program name — the first word after splitting. So
 Since v2.1.0 the actual shell engine is a separate, optional pack. The main plugin does not bundle, download or load it on its own — a console admin has to install it explicitly. All `!!secure_shell` management commands are **console-only**; every in-game player is rejected, no matter their permission level.
 
 ```
-!!secure_shell install_ext [password]    download, verify (SHA256 + RSA signature) and install the pack
+!!secure_shell install_ext [password]    download, verify (SHA-256) and install the pack
 !!secure_shell check_ext                 show whether the engine is installed / enabled, and its version
 !!secure_shell enable_ext                enable the installed engine (a second, explicit step on purpose)
 !!secure_shell disable_ext               disable the engine without removing it
@@ -98,7 +98,7 @@ Since v2.1.0 the actual shell engine is a separate, optional pack. The main plug
 !!secure_shell hash_password <pw>        print a PBKDF2 hash to paste into the config (if you want a password)
 ```
 
-Integrity is enforced, not optional: the downloaded pack must match the SHA-256 pinned in the plugin (or the one you set in `ext_expected_sha256`) and must carry a valid RSA-2048 signature against the public key built into the plugin source. A pack that fails either check is never written to disk. If you set a password in the config (PBKDF2 hash, never plaintext, never in source), `install_ext` and `uninstall_ext` require it as an extra argument.
+Integrity is enforced, not optional: the downloaded pack must match the SHA-256 pinned in the plugin source (or the one you set in `ext_expected_sha256`). A mismatched pack is never written to disk. If you ever host packs elsewhere and want more than a pinned hash, RSA signatures can be added later — for the normal setup the hash is the whole story. If you set a password in the config (PBKDF2 hash, never plaintext, never in source), `install_ext` and `uninstall_ext` require it as an extra argument.
 
 ## Security notes
 
@@ -110,7 +110,7 @@ Keep interpreters (`bash`, `sh`, `zsh`, `python`, `perl`, `powershell`, ...) out
 
 Every execution is logged to `logs/secure_shell.log` with time, player, command and result — denials included.
 
-Two things about the extension worth keeping in mind: the MCDR console is as powerful as the host itself, so anyone who can type into it can install the engine — that is the trust boundary, the password only adds a second check against mistakes. And the private key that signs packs lives on the packager's machine, never in the repo or the plugin; if you build your own pack, the `ext_expected_sha256` config is where your own hash goes.
+Two things about the extension worth keeping in mind: the MCDR console is as powerful as the host itself, so anyone who can type into it can install the engine — that is the trust boundary, the password only adds a second check against mistakes. And if you build your own pack, the `ext_expected_sha256` config is where your own hash goes.
 
 ## Install
 

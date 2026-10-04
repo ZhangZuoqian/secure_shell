@@ -8,7 +8,7 @@
 #   1. shell 执行引擎拆入可选扩展包，主插件默认不带、不下载、不加载
 #   2. 扩展包管理命令（!!secure_shell *）仅限控制台，游戏内玩家一律拒绝
 #   3. 下载用标准库 urllib（零第三方依赖），强制 SHA256 完整性校验
-#   4. 进阶 RSA-2048 签名校验（PKCS#1 v1.5 + SHA-256），公钥内置本文件，私钥只在构建侧
+#   4. 完整性校验以 SHA256 哈希锚定为准（RSA 签名为进阶选项，暂不启用以保持简单）
 #   5. 可选二次密码验证（PBKDF2-SHA256 存配置文件，源码零硬编码）
 #   6. 安装后不自动启用，需 !!secure_shell enable_ext 显式开启
 #
@@ -83,7 +83,7 @@ DEFAULT_CONFIG = {
         "kill -9 1", "systemctl stop", "service stop",
     ],
     # ---- 扩展包（shell 执行引擎）----
-    # 下载地址（签名文件为该地址 + ".sig"）
+    # 下载地址
     "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-latest.zip",
     # 期望的 SHA256；留空 = 使用源码内置值。自定义下载源时必须改成对应包的哈希
     "ext_expected_sha256": "",
@@ -98,14 +98,9 @@ DEFAULT_CONFIG = {
 MAIN_VERSION = PLUGIN_METADATA['version']
 
 # ---------------------------------------------------------------------------
-# 扩展包内置信任锚（公钥 + 当前扩展包哈希）
-# 私钥只在构建机（secure_shell_keys/，不入仓库），插件侧仅能验证不能签名
+# 扩展包内置信任锚：当前扩展包的 SHA256（改包必须同步改这里，或走 ext_expected_sha256 配置）
 # ---------------------------------------------------------------------------
-EXT_PUBKEY_N_HEX = "cdb4f61f3e214c7ad0297941fecb2131aad071992a4346f9540c972f08dd82b8c1d5b4f54bdea25d20bf78d0c8c59a6b93c030ebe2ffb35a61e261bb49ac37a3e90ad244c5e00bdf4eaf47bad40e6009a5795eaafa3de89e2aec5bb028722efea77a4884e446820ebda1726cbcc649a954bb45049c3f1006d3c2bcc1f0160f1cecf930951595cbc7e7a9be411f30bba9a430d312cc5f46b009a10c30c994f4627c82be42e3a1be9bbde5e9aeba1b45d84bdc2c761b8a0c616c060b5427390b897130b4e219a4c540dad461618fce5b56328a34aef530c93634a7be4ae6a62ca3a0816f6c68be2edf002fc172f33204fc7f172dba797e82637337381938469a63"
-EXT_PUBKEY_E_HEX = "10001"
 EXT_EXPECTED_SHA256 = "3f4c9081b9eef3dd721dfb986e9278ef9aff46657d428de9f23f616aecacc9fc"
-# SHA-256 的 PKCS#1 v1.5 DigestInfo 前缀
-_RSA_SHA256_DIGESTINFO = bytes.fromhex("3031300d060960864801650304020105000420")
 
 # 全局状态
 _config: dict = None
@@ -236,29 +231,6 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _rsa_verify(data: bytes, sig: bytes) -> bool:
-    """纯标准库 RSA-2048 PKCS#1 v1.5 + SHA-256 验签（公钥内置，无 DER 解析面）。"""
-    try:
-        n = int(EXT_PUBKEY_N_HEX, 16)
-        e = int(EXT_PUBKEY_E_HEX, 16)
-        k = (n.bit_length() + 7) // 8
-        if len(sig) != k:
-            return False
-        s = int.from_bytes(sig, 'big')
-        if s >= n:
-            return False
-        m = pow(s, e, n)
-        em = m.to_bytes(k, 'big')
-        h = hashlib.sha256(data).digest()
-        pad_len = k - len(_RSA_SHA256_DIGESTINFO) - len(h) - 3
-        if pad_len < 8:
-            return False
-        expected = b'\x00\x01' + b'\xff' * pad_len + b'\x00' + _RSA_SHA256_DIGESTINFO + h
-        return secrets.compare_digest(em, expected)
-    except Exception:
-        return False
-
-
 def _download(url: str, max_bytes: int, timeout: int) -> bytes:
     """标准库 urllib 下载，仅允许 http/https，分块读取防超大文件。"""
     if not url.lower().startswith(('http://', 'https://')):
@@ -341,18 +313,12 @@ def ext_cmd_install(source, password: str = ""):
         try:
             source.reply(f"§7[INFO] 下载扩展包 downloading: {url.rsplit('/', 1)[-1]}§r")
             data = _download(url, max_bytes, timeout)
-            sig = _download(url + ".sig", 4096, timeout)
 
             expected = _config.get("ext_expected_sha256") or EXT_EXPECTED_SHA256
             actual = _sha256_hex(data)
             if actual != expected.lower():
                 _audit("扩展安装失败", result=f"SHA256 不匹配 expected={expected[:12]} actual={actual[:12]}")
                 source.reply(RText(f"§c[FAIL] SHA256 校验失败 (integrity check failed)§r"))
-                return
-
-            if not _rsa_verify(data, sig):
-                _audit("扩展安装失败", result="RSA 签名验证失败 (signature invalid)")
-                source.reply(RText("§c[FAIL] RSA 签名验证失败 (signature invalid)，文件可能被篡改§r"))
                 return
 
             _safe_extract(data)
