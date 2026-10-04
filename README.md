@@ -65,7 +65,7 @@ The plugin runs on Linux, macOS and Windows, but the commands you can run depend
 
 `cd` and `pwd` are handled by the plugin itself on all three systems, so the working directory follows you around and resets when the plugin is reloaded.
 
-Replies come in order: an info line with the effective `cwd` and timeout, the streamed output, then an exit-code line. `[OK] 退出码 0` means success, `[FAIL] 退出码 N` means failure. stderr is merged into the output. A blocked command never runs and answers `[FAIL] 安全拦截: <原因>`; a command past its timeout is killed with `[FAIL] 命令超时(>Ns)，已强制终止`; unclosed quotes are rejected before anything runs. All of this — denials included — lands in `logs/secure_shell.log`.
+Replies come in order: an info line with the effective `cwd` and timeout, the streamed output, then an exit-code line. `[OK] 退出码 0 (exit 0)` means success, `[FAIL] 退出码 N (exit N)` means failure — replies are bilingual, Chinese first with an English gloss. stderr is merged into the output. A blocked command never runs and answers `[FAIL] 安全拦截 (blocked): <原因>`; a command past its timeout is killed with `[FAIL] 命令超时 (timeout >Ns)，已强制终止 (killed)`; unclosed quotes are rejected before anything runs. All of this — denials included — lands in `logs/secure_shell.log`.
 
 `!!shellstatus` shows whether the allowlist is enforced, whether in-game execution is on, and reminds you the blacklist always applies.
 

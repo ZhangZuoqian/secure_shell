@@ -38,7 +38,7 @@ from mcdreforged.api.all import *
 
 PLUGIN_METADATA = {
     'id': 'secure_shell',
-    'version': '2.0.2',
+    'version': '2.0.3',
     'name': 'Secure Shell',
     'description': {
         'zh_cn': '跨平台Shell执行器，带安全白名单与日志审计',
@@ -156,7 +156,7 @@ def check_allowed(program: str) -> Tuple[bool, str]:
     for bad in _config.get("blacklist", []):
         bad_head = bad.strip().split()[0].lower() if bad.strip() else ""
         if bad_head and program == bad_head:
-            return False, f"命中黑名单命令: {bad}"
+            return False, f"命中黑名单命令 (blacklist hit): {bad}"
 
     # 2. 白名单
     allowlist = _config.get("allowlist", [])
@@ -165,12 +165,12 @@ def check_allowed(program: str) -> Tuple[bool, str]:
 
     if _config.get("enforce_allowlist", True):
         if not allowlist:
-            return False, "白名单为空且强制开启，所有命令被拒绝"
+            return False, "白名单为空且强制开启，所有命令被拒绝 (allowlist empty while enforced — everything denied)"
         for good in allowlist:
             good_head = good.strip().split()[0].lower() if good.strip() else ""
             if good_head and program == good_head:
                 return True, ""
-        return False, f"命令不在白名单内: {program}"
+        return False, f"命令不在白名单内 (not in allowlist): {program}"
     else:
         return True, ""  # 非强制模式：放行，但会记录
 
@@ -187,19 +187,19 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
         cmd_list = shlex.split(command)
     except ValueError:
         _audit("拒绝执行", player=player, command=command, result="命令格式错误，引号未正确闭合")
-        return -1, "[FAIL] 命令格式错误，引号未正确闭合"
+        return -1, "[FAIL] 命令格式错误，引号未正确闭合 (bad quoting)"
 
     # 空列表拦截：拒绝执行空命令
     if not cmd_list:
         _audit("拒绝执行", player=player, command=command, result="空命令")
-        return -1, "[FAIL] 空命令，拒绝执行"
+        return -1, "[FAIL] 空命令，拒绝执行 (empty command)"
 
     # 安全校验：只拿索引0的真实程序名做黑白名单判断，不校验原始输入字符串
     program = cmd_list[0]
     allowed, reason = check_allowed(program)
     if not allowed:
         _audit("拒绝执行", player=player, command=command, result=f"被拦截: {reason}")
-        return -1, f"[FAIL] 安全拦截: {reason}"
+        return -1, f"[FAIL] 安全拦截 (blocked): {reason}"
 
     _audit("执行", player=player, command=command, extra=f"cwd={_cwd}")
 
@@ -216,7 +216,7 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
         )
     except Exception as e:
         _audit("执行失败", player=player, command=command, result=f"启动异常: {e}")
-        return -1, f"[FAIL] 执行异常: {e}"
+        return -1, f"[FAIL] 执行异常 (execution error): {e}"
 
     # 流式读取
     output_chunks = []
@@ -248,7 +248,7 @@ def execute_shell(command: str, timeout: int, player: str) -> Tuple[int, str]:
 
     output = "".join(output_chunks)
     if timed_out:
-        output += f"\n[FAIL] 命令超时(>{timeout}s)，已强制终止"
+        output += f"\n[FAIL] 命令超时 (timeout >{timeout}s)，已强制终止 (killed)"
 
     return code, output
 
@@ -278,13 +278,13 @@ def shell_cmd(source: CommandSource, command: str):
 
     # 游戏内执行默认禁用（v2.0.2）：仅 MCDR 控制台可用，需显式开启且玩家满足权限等级
     if source.is_player and not _config.get("allow_player_execution", False):
-        source.reply(RText(f"§c[FAIL] 游戏内执行默认禁用（仅限控制台）。如确需开启，请在 config 中设置 allow_player_execution=true，且玩家权限等级需 ≥ {req_perm}§r"))
+        source.reply(RText(f"§c[FAIL] 游戏内执行默认禁用，仅限控制台 (in-game execution disabled by default, console only)。如需开启 set allow_player_execution=true in config，且玩家权限等级需 ≥ {req_perm}§r"))
         _audit("玩家执行禁用", player=source.player, command=command,
                result="allow_player_execution=False")
         return
 
     if not source.has_permission(req_perm):
-        source.reply(RText(f"§c[FAIL] 权限不足，需要MCDR权限等级 {req_perm}§r"))
+        source.reply(RText(f"§c[FAIL] 权限不足 (permission denied)：需要 MCDR 权限等级 {req_perm}§r"))
         _audit("权限不足", player=source.player if source.is_player else "控制台",
                command=command, result=f"需要权限{req_perm}")
         return
@@ -307,14 +307,14 @@ def shell_cmd(source: CommandSource, command: str):
         if p.is_dir():
             _cwd = p
             _audit("切换目录", player=player, result=str(_cwd))
-            source.reply(f"§a[OK] 工作目录已切换到: {_cwd}§r")
+            source.reply(f"§a[OK] 工作目录已切换 (cwd changed): {_cwd}§r")
         else:
-            source.reply(f"§c[FAIL] 目录不存在: {p}§r")
+            source.reply(f"§c[FAIL] 目录不存在 (no such directory): {p}§r")
         return
 
     # pwd 命令
     if stripped == 'pwd':
-        source.reply(f"§e[INFO] 当前工作目录: {_cwd}§r")
+        source.reply(f"§e[INFO] 当前工作目录 (cwd): {_cwd}§r")
         return
 
     timeout = _config.get("default_timeout", 60)
@@ -330,14 +330,14 @@ def shell_cmd(source: CommandSource, command: str):
     if len(command_clean) >= 2 and command_clean[0] == command_clean[-1] and command_clean[0] in ('"', "'"):
         command_clean = command_clean[1:-1]
 
-    source.reply(f"§7[INFO] 执行 §f{command_clean}§7  (cwd={_cwd}, timeout={timeout}s)§r")
+    source.reply(f"§7[INFO] 执行 run §f{command_clean}§7  (cwd={_cwd}, timeout={timeout}s)§r")
     code, output = execute_shell(command_clean, timeout, player)
     if output.strip():
         source.reply(format_output(output))
     if code == 0:
-        source.reply(f"§a[OK] 退出码 {code}§r")
+        source.reply(f"§a[OK] 退出码 {code} (exit {code})§r")
     else:
-        source.reply(f"§c[FAIL] 退出码 {code}§r")
+        source.reply(f"§c[FAIL] 退出码 {code} (exit {code})§r")
     _audit("完成", player=player, command=command_clean, result=f"exit={code}")
 
 
@@ -350,15 +350,15 @@ def _shell_status(source: CommandSource):
         source.reply(RText("§c[FAIL] 权限不足§r"))
         return
     en = _config.get("enforce_allowlist", False)
-    mode = "§a开启§r（只允许白名单命令）" if en else "§e关闭§r（放行任意命令，危险命令黑名单仍兜底）"
-    source.reply(f"§7[INFO] 白名单强制: {mode}")
+    mode = "§a开启 ON§r（只允许白名单命令 allowlist-only）" if en else "§e关闭 OFF§r（放行任意命令 any command，危险命令黑名单仍兜底 blacklist still applies）"
+    source.reply(f"§7[INFO] 白名单 allowlist 强制: {mode}")
     if not en:
-        source.reply(f"§7  黑名单拦截仍在生效，危险命令如 rm -rf /、shutdown 等会被拒绝")
+        source.reply(f"§7  黑名单拦截仍在生效 blacklist always applies：rm -rf /、shutdown 等会被拒绝 denied")
     else:
-        source.reply(f"§7  当前白名单 {len(_config.get('allowlist', []))} 条，可用 !!shellstatus 查看")
+        source.reply(f"§7  当前白名单 allowlist {len(_config.get('allowlist', []))} 条 entries，可用 !!shellstatus 查看")
     pe = _config.get("allow_player_execution", False)
-    pe_mode = "§e开启§r（游戏内需权限等级 ≥ %d）" % _config.get("required_permission", 4) if pe else "§c关闭§r（仅控制台可执行）"
-    source.reply(f"§7[INFO] 游戏内玩家执行: {pe_mode}")
+    pe_mode = "§e开启 ON§r（玩家需权限等级 ≥ %d）" % _config.get("required_permission", 4) if pe else "§c关闭 OFF§r（仅控制台 console only）"
+    source.reply(f"§7[INFO] 游戏内执行 in-game execution: {pe_mode}")
 
 
 def on_load(server: PluginServerInterface, prev_module):
