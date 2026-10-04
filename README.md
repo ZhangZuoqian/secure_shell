@@ -6,6 +6,14 @@ An MCDReforged plugin for panel-hosted servers. It runs shell commands for you �
 
 On a panel host you get a web console whose input goes straight to the game server. No root, no SSH, no terminal of your own. Want to check disk usage or see which process is eating memory? Nowhere to type. I wrote this for exactly that — it runs on my own panel server (SimpFun, a free one), and I use it daily for those little checks.
 
+## Requirements
+
+```
+mcdreforged>=2.0.0
+```
+
+The plugin code itself needs Python 3.7+ (`subprocess` gets a `text=True` flag that older Pythons don't know). In practice the floor is whatever your MCDR needs — MCDR 2.15+, for example, requires Python 3.9. Written and tested on MCDR 2.15.7 / Python 3.12.
+
 ## Features
 
 - Console-first: by default only the MCDR console can run commands; in-game execution is opt-in
@@ -20,18 +28,42 @@ On a panel host you get a web console whose input goes straight to the game serv
 By default only the MCDR console can run commands; in-game execution is disabled (since v2.0.2). To let players use `!!shell`, set `allow_player_execution` to `true` in the config — and even then a player still needs MCDR permission level `required_permission` (default `4`). Both checks have to pass. While the switch is off, players who try get told so, and every attempt is logged.
 
 ```
-!!shell "df -h"                    run a command
-!!sh "ping -c 4 8.8.8.8"           !!sh is an alias of !!shell
-!!shell --timeout=10 "..."         override the timeout for one command
+!!shell "<command>"                run a command
+!!sh "<command>"                   !!sh is an alias of !!shell
+!!shell --timeout=10 "<command>"   override the timeout for one command
 !!shellstatus                      show the current switches
 ```
 
-`cd` and `pwd` are handled by the plugin itself, so the working directory follows you around and resets when the plugin is reloaded:
+The plugin runs on Linux, macOS and Windows, but the commands you can run depend on the host system:
+
+**Linux**
 
 ```
-!!shell "cd /home/container"
-!!shell "ls"
+!!shell "df -h"                    disk usage
+!!shell "free -h"                  memory
+!!shell "ps aux"                   processes
+!!shell "cd /home/container"       then: !!shell "ls"
 ```
+
+**macOS** — mostly the same as Linux, but there is no `free`; use `vm_stat` or `top -l 1` for memory:
+
+```
+!!shell "df -h"
+!!shell "vm_stat"
+!!shell "ping -c 4 8.8.8.8"
+```
+
+**Windows** — the plugin starts programs directly without a shell, so cmd builtins like `dir`, `copy` or `del` cannot run; use real executables instead. Also, `ping` takes `-n` here, not `-c`:
+
+```
+!!shell "tasklist"                 processes
+!!shell "ipconfig /all"            network config
+!!shell "systeminfo"
+!!shell "netstat -an"
+!!shell "cd C:\MCDR"               then: !!shell "tree /F"
+```
+
+`cd` and `pwd` are handled by the plugin itself on all three systems, so the working directory follows you around and resets when the plugin is reloaded.
 
 Replies come in order: an info line with the effective `cwd` and timeout, the streamed output, then an exit-code line. `[OK] 退出码 0` means success, `[FAIL] 退出码 N` means failure. stderr is merged into the output. A blocked command never runs and answers `[FAIL] 安全拦截: <原因>`; a command past its timeout is killed with `[FAIL] 命令超时(>Ns)，已强制终止`; unclosed quotes are rejected before anything runs. All of this — denials included — lands in `logs/secure_shell.log`.
 
@@ -50,7 +82,7 @@ Replies come in order: an info line with the effective `cwd` and timeout, the st
 | `allowlist` | (a set of common safe commands) | Entries match the program name, i.e. the first word of the command |
 | `blacklist` | (dangerous commands) | Checked before the allowlist, always applies |
 
-Matching works on the actual program name — the first word after splitting. So `git status` in the allowlist allows `git`, and `rm -rf /` in the blacklist blocks `rm`. The blacklist always wins; the allowlist only matters when `enforce_allowlist` is `true`.
+Matching works on the actual program name — the first word after splitting. So `git status` in the allowlist allows `git`, and `rm -rf /` in the blacklist blocks `rm`. The blacklist always wins; the allowlist only matters when `enforce_allowlist` is `true`. The bundled allowlist is written for Linux — on Windows or macOS, adjust it to your own system (e.g. `tasklist`, `ipconfig` on Windows).
 
 ## Security notes
 
@@ -58,7 +90,7 @@ Since v2.0.1 commands no longer go through a shell. Input is split into a progra
 
 Think twice before you set `allow_player_execution` to `true`. Whoever can run `!!shell` runs real commands on the host. The blacklist and allowlist are pattern matching, not a sandbox. Enable it only for your own owner account — MCDR permission level 4 comes from `permission.yml`, and that list is empty for players by default — and don't lower `required_permission` just to make it work for someone else.
 
-Keep interpreters (`bash`, `sh`, `zsh`, `python`, `perl`, ...) out of the allowlist. An interpreter can run arbitrary commands on its own, so allowing one defeats the whitelist. The plugin won't stop you — it's your config. Stick to plain tools like `ping`, `df`, `free`, `uptime`, `systemctl`.
+Keep interpreters (`bash`, `sh`, `zsh`, `python`, `perl`, `powershell`, ...) out of the allowlist. An interpreter can run arbitrary commands on its own, so allowing one defeats the whitelist. The plugin won't stop you — it's your config. Stick to plain tools like `ping`, `df`, `free`, `uptime`, `systemctl`.
 
 Every execution is logged to `logs/secure_shell.log` with time, player, command and result — denials included.
 
