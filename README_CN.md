@@ -82,6 +82,9 @@ mcdreforged>=2.0.0
 | `enforce_allowlist` | `false` | `true` 时只放行白名单里的程序 |
 | `allowlist` | （一组常用的安全命令） | 条目按程序名（命令的第一个词）匹配 |
 | `blacklist` | （危险命令） | 优先于白名单，始终生效 |
+| `ext_download_url` | （本仓库 release） | `install_ext` 拉取引擎包的地址 |
+| `ext_expected_sha256` | （空 = 源码内置锚） | 自建扩展包时必填你自己的哈希 |
+| `ext_password_pbkdf2` | （空 = 关闭） | 二次密码哈希，用 `hash_password` 生成 |
 
 匹配对象是拆分后的真实程序名（首词全等）：白名单里的 `git status` 放行的是 `git`，黑名单里的 `rm -rf /` 拦的是 `rm`。黑名单永远兜底，白名单只在 `enforce_allowlist` 为 `true` 时生效。自带的 `allowlist` 是按 Linux 写的——Windows 和 macOS 用户请按自己的系统改（比如 Windows 下的 `tasklist`、`ipconfig`）。
 

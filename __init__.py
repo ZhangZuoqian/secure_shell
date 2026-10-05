@@ -84,7 +84,7 @@ DEFAULT_CONFIG = {
     ],
     # ---- 扩展包（shell 执行引擎）----
     # 下载地址
-    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-1.0.1.zip",
+    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-1.0.2.zip",
     # 期望的 SHA256；留空 = 使用源码内置值。自定义下载源时必须改成对应包的哈希
     "ext_expected_sha256": "",
     # 下载大小上限（字节），防磁盘炸弹
@@ -100,7 +100,7 @@ MAIN_VERSION = PLUGIN_METADATA['version']
 # ---------------------------------------------------------------------------
 # 扩展包内置信任锚：当前扩展包的 SHA256（改包必须同步改这里，或走 ext_expected_sha256 配置）
 # ---------------------------------------------------------------------------
-EXT_EXPECTED_SHA256 = "ccfeef75d82ebdca073938b149a872f553e39ca08690dc457d5e0e57c9d4be95"
+EXT_EXPECTED_SHA256 = "34602800422660ffab3c9b26d259316ff217de5daf25561bf363a1ee39b9cd3c"
 
 # 全局状态
 _config: dict = None
@@ -239,6 +239,10 @@ def _download(url: str, max_bytes: int, timeout: int) -> bytes:
     chunks = []
     got = 0
     with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # 重定向后校验最终 URL 仍是 http/https（防 Location: file:// 等协议绕过）
+        final = resp.geturl().lower()
+        if not final.startswith(('http://', 'https://')):
+            raise ValueError(f"重定向到不允许的协议 (redirect to unsupported scheme)")
         while True:
             chunk = resp.read(65536)
             if not chunk:
@@ -262,6 +266,8 @@ def _safe_extract(zip_bytes: bytes) -> None:
             name = Path(info.filename).name  # 去掉任何目录成分
             if name not in allowed:
                 raise ValueError(f"扩展包含未知文件 (unexpected member): {info.filename[:40]}")
+            if info.file_size > 4 * 1024 * 1024:
+                raise ValueError(f"扩展包含超大文件 (member too large): {name} {info.file_size}B")
         for name in allowed:
             target = ext_dir / name
             target.write_bytes(z.read(name))
@@ -328,6 +334,8 @@ def ext_cmd_install(source, password: str = ""):
             state["enabled"] = False
             state["installed_at"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             _save_state(state)
+            if _ext_module is not None:
+                _ext_unload_module()  # 重装后内存里的旧引擎必须重新 enable 才生效，避免状态与内存不一致
             _audit("扩展安装", result=f"v{state['installed_version']} sha256={actual[:12]} 已验证 verified")
             source.reply(f"§a[OK] 扩展包 v{state['installed_version']} 安装完成并已验证 (installed & verified)，未启用 not enabled§r")
             source.reply(f"§7[INFO] 执行 !!secure_shell enable_ext 启用 shell 能力§r")
@@ -473,6 +481,12 @@ def _shell_status(source: CommandSource):
         source.reply(f"§7  黑名单拦截仍在生效 blacklist always applies：rm -rf /、shutdown 等会被拒绝 denied")
     else:
         source.reply(f"§7  当前白名单 allowlist {len(_config.get('allowlist', []))} 条 entries，可用 !!shellstatus 查看")
+    if _ext_module is not None:
+        source.reply(f"§7[INFO] shell 引擎 engine: §a已启用 v{getattr(_ext_module, 'EXT_VERSION', '?')}§r")
+    elif (_ext_dir() / 'shell_ext.py').exists():
+        source.reply(f"§7[INFO] shell 引擎 engine: §e已安装未启用 installed but disabled（!!secure_shell enable_ext）§r")
+    else:
+        source.reply(f"§7[INFO] shell 引擎 engine: §c未安装 not installed（!!secure_shell install_ext）§r")
     pe = _config.get("allow_player_execution", False)
     pe_mode = "§e开启 ON§r（玩家需权限等级 ≥ %d）" % _config.get("required_permission", 4) if pe else "§c关闭 OFF§r（仅控制台 console only）"
     source.reply(f"§7[INFO] 游戏内执行 in-game execution: {pe_mode}")

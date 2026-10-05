@@ -82,6 +82,9 @@ Replies come in order: an info line with the effective `cwd` and timeout, the st
 | `enforce_allowlist` | `false` | `true`: only allowlisted programs may run |
 | `allowlist` | (a set of common safe commands) | Entries match the program name, i.e. the first word of the command |
 | `blacklist` | (dangerous commands) | Checked before the allowlist, always applies |
+| `ext_download_url` | (this repo's release) | Where `install_ext` pulls the engine pack |
+| `ext_expected_sha256` | (empty = pinned in source) | Required hash when you host your own pack |
+| `ext_password_pbkdf2` | (empty = off) | Second-factor hash, generate with `hash_password` |
 
 Matching works on the actual program name — the first word after splitting. So `git status` in the allowlist allows `git`, and `rm -rf /` in the blacklist blocks `rm`. The blacklist always wins; the allowlist only matters when `enforce_allowlist` is `true`. The bundled allowlist is written for Linux — on Windows or macOS, adjust it to your own system (e.g. `tasklist`, `ipconfig` on Windows).
 
