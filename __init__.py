@@ -84,7 +84,7 @@ DEFAULT_CONFIG = {
     ],
     # ---- 扩展包（shell 执行引擎）----
     # 下载地址
-    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-latest.zip",
+    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-1.0.0.zip",
     # 期望的 SHA256；留空 = 使用源码内置值。自定义下载源时必须改成对应包的哈希
     "ext_expected_sha256": "",
     # 下载大小上限（字节），防磁盘炸弹
