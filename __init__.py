@@ -84,7 +84,7 @@ DEFAULT_CONFIG = {
     ],
     # ---- 扩展包（shell 执行引擎）----
     # 下载地址
-    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-1.0.0.zip",
+    "ext_download_url": "https://github.com/ZhangZuoqian/secure_shell/releases/latest/download/shell_ext-1.0.1.zip",
     # 期望的 SHA256；留空 = 使用源码内置值。自定义下载源时必须改成对应包的哈希
     "ext_expected_sha256": "",
     # 下载大小上限（字节），防磁盘炸弹
@@ -100,7 +100,7 @@ MAIN_VERSION = PLUGIN_METADATA['version']
 # ---------------------------------------------------------------------------
 # 扩展包内置信任锚：当前扩展包的 SHA256（改包必须同步改这里，或走 ext_expected_sha256 配置）
 # ---------------------------------------------------------------------------
-EXT_EXPECTED_SHA256 = "3f4c9081b9eef3dd721dfb986e9278ef9aff46657d428de9f23f616aecacc9fc"
+EXT_EXPECTED_SHA256 = "ccfeef75d82ebdca073938b149a872f553e39ca08690dc457d5e0e57c9d4be95"
 
 # 全局状态
 _config: dict = None
@@ -488,7 +488,11 @@ def _shell_status(source: CommandSource):
 
 
 def on_load(server: PluginServerInterface, prev_module):
-    global _ext_module
+    global _ext_module, _data_dir
+    try:
+        _data_dir = Path(server.get_data_dir())
+    except Exception:
+        _data_dir = None  # 极旧 MCDR 无此 API 时回退相对路径
     load_config(server)
 
     # shell 执行入口（引擎未启用时给指引）
